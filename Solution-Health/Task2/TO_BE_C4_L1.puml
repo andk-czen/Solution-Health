@@ -1,0 +1,49 @@
+@startuml
+!include https://raw.githubusercontent.com/plantuml-stdlib/C4-PlantUML/master/C4_Context.puml
+
+LAYOUT_WITH_LEGEND()
+LAYOUT_TOP_DOWN()
+
+title Целевая контекстная диаграмма C4 (Level 1) — «Здоровье+»
+
+Person(patient, "Пациент", "Записывается на приём, оплачивает услуги,\nполучает результаты анализов, управляет полисами ДМС")
+Person(doctor, "Врач", "Управляет расписанием,\nпросматривает анализы и историю пациентов")
+Person(lab_tech, "Лаборант", "Контролирует загрузку результатов\nс лабораторного оборудования в LIS")
+
+System_Boundary(health_plus, "Здоровье+") {
+    System(mobile_app, "Мобильное приложение\n«Здоровье+»", "iOS / Android.\nЗапись, оплата, анализы, полисы ДМС, уведомления")
+    System(web_portal, "Веб-портал", "Текущий веб-интерфейс для пациентов,\nврачей и администраторов")
+    System(backend, "Backend-системы\n«Здоровье+»", "API Gateway, Booking Orchestrator,\nCRM, Расписание, Payment Service")
+    System_Ext(kafka, "Apache Kafka", "Асинхронная событийная шина.\nГарантированная доставка событий\nмежду системами")
+    System_Ext(rabbitmq, "RabbitMQ", "Брокер для отправки\nуведомлений пользователям")
+}
+
+System_Ext(auth_service, "Auth Service\n(OAuth2 / OIDC)", "Выдача и валидация токенов доступа")
+System_Ext(lis, "LIS\n(Лабораторная система)", "Хранение результатов анализов,\nприём данных с оборудования")
+System_Ext(sys_1c, "1С: Полисы", "Проверка валидности полисов ДМС")
+System_Ext(payment_gw, "Платёжный шлюз", "Проведение онлайн-платежей")
+
+Rel(patient, mobile_app, "Запись, оплата, анализы,\nполисы, уведомления", "HTTPS")
+Rel(patient, web_portal, "Запись, просмотр анализов, полисы", "HTTPS")
+Rel(doctor, web_portal, "Управление расписанием\nи анализами", "HTTPS")
+Rel(lab_tech, lis, "Контроль результатов\nс оборудования", "HTTPS")
+
+Rel(mobile_app, auth_service, "Аутентификация", "HTTPS / OAuth2 + PKCE")
+Rel(web_portal, auth_service, "Аутентификация", "HTTPS / OAuth2 + PKCE")
+
+Rel(backend, auth_service, "Валидация токенов", "gRPC")
+
+Rel(mobile_app, backend, "API-запросы", "HTTPS/REST/JSON")
+Rel(web_portal, backend, "API-запросы", "HTTPS/REST/JSON")
+
+Rel(backend, kafka, "Публикация / потребление\nсобытий", "Kafka Protocol")
+Rel(kafka, backend, "Публикация / потребление\nсобытий", "Kafka Protocol")
+
+Rel(backend, sys_1c, "Проверка полисов", "HTTPS/REST/JSON")
+Rel(backend, payment_gw, "Проведение платежей", "HTTPS/REST/JSON")
+Rel(backend, lis, "Получение результатов\nанализов", "Kafka")
+
+Rel(backend, rabbitmq, "Отправка уведомлений", "AMQP")
+Rel(rabbitmq, patient, "Email / SMS / Push", "Через внешних провайдеров")
+
+@enduml

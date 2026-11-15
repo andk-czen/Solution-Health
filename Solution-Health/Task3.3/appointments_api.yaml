@@ -1,0 +1,328 @@
+# Задание 3.3. API для мобильного приложения (OpenAPI)
+
+## 1. Спецификация OpenAPI 3.2 (YAML)
+
+```yaml
+openapi: 3.2.0
+info:
+  title: Health+ Mobile App API
+  description: |
+    API для мобильного приложения «Здоровье+».
+    Обеспечивает получение списка предстоящих записей пациента к врачу.
+
+    Версионирование: URI-based (/api/v1/).
+    Аутентификация: OAuth 2.0 + Bearer JWT (RS256).
+  version: 1.0.0
+  contact:
+    name: Health+ API Support
+    email: api-support@zdorove.plus
+  license:
+    name: Proprietary
+
+servers:
+  - url: https://api.zdorove.plus/api/v1
+    description: Production
+
+components:
+  securitySchemes:
+    BearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+      description: |
+        JWT-токен, полученный через OAuth 2.0 + PKCE.
+        Алгоритм: RS256.
+        Передача: заголовок Authorization: Bearer <token>
+
+  schemas:
+    Appointment:
+      type: object
+      required:
+        - patient_id
+        - status
+        - limit
+        - offset
+        - idempotency_key
+      properties:
+        patient_id:
+          type: string
+          format: uuid
+          description: Идентификатор клиента
+          example: "patient_12345"
+        status:
+          type: string
+          enum: [new, confirmed]
+          description: Статус записи
+          example: "confirmed"
+        limit:
+          type: integer
+          description: Количество записей на странице
+          minimum: 1
+          maximum: 200
+          default: 50
+          example: 50
+        offset:
+          type: integer
+          description: Смещение (количество пропущенных записей)
+          minimum: 0
+          default: 10
+          example: 10
+        idempotency_key:
+          type: string
+          description: Ключ идемпотентности запроса
+          example: "idem_appt_patient_12345_20261115"
+
+    AppointmentResponse:
+      type: object
+      description: Ответ с записями
+      properties:
+        appointments:
+          type: array
+          description: Массив записей к врачу
+          items:
+            $ref: "#/components/schemas/Appointment"
+          example:
+            - patient_id: "patient_12345"
+              status: "confirmed"
+              limit: 50
+              offset: 10
+              idempotency_key: "idem_appt_patient_12345_20261115"
+              id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+              doctor:
+                id: "doc_456"
+                full_name: "Иванов Иван Иванович"
+                specialization: "Терапевт"
+                clinic:
+                  id: "clinic_msk_1"
+                  name: "Клиника на Тверской"
+                  address: "г. Москва, Тверская ул., д. 15"
+              scheduled_at: "2026-11-20T14:30:00+03:00"
+              type: "CONSULTATION"
+              lab_tests: []
+              notes: "Первичный приём"
+              created_at: "2026-11-15T10:00:00+03:00"
+
+    Error:
+      type: object
+      required:
+        - error
+        - message
+      properties:
+        error:
+          type: string
+          description: Код ошибки
+          example: "NOT_FOUND"
+        message:
+          type: string
+          description: Человек-читаемое описание ошибки
+          example: "Записи не найдены"
+        trace_id:
+          type: string
+          format: uuid
+          description: ID запроса для поддержки
+          example: "trace_abc123"
+
+  parameters:
+    patientId:
+      name: patientId
+      in: path
+      required: true
+      description: Идентификатор клиента
+      schema:
+        type: string
+        format: uuid
+      example: "patient_12345"
+
+    status:
+      name: status
+      in: query
+      description: |
+        Фильтр по статусу записи.
+        Если не передан — возвращаются записи со всеми статусами.
+      required: false
+      schema:
+        type: string
+        enum: [new, confirmed]
+      example: "confirmed"
+
+    limit:
+      name: limit
+      in: query
+      description: |
+        Количество записей на странице.
+        По умолчанию: 50.
+      required: false
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 200
+        default: 50
+      example: 50
+
+    offset:
+      name: offset
+      in: query
+      description: |
+        Смещение (количество пропущенных записей).
+        По умолчанию: 10.
+      required: false
+      schema:
+        type: integer
+        minimum: 0
+        default: 10
+      example: 10
+
+    IdempotencyKey:
+      name: X-Idempotency-Key
+      in: header
+      required: true
+      description: |
+        Ключ идемпотентности запроса.
+        Гарантирует, что повторный запрос с тем же ключом
+        не создаст дубликатов.
+      schema:
+        type: string
+      example: "idem_appt_patient_12345_20261115"
+
+    X_Request_ID:
+      name: X-Request-ID
+      in: header
+      description: Уникальный ID запроса для distributed tracing
+      required: false
+      schema:
+        type: string
+        format: uuid
+        example: "req_abc123-def456"
+
+paths:
+  /appointments/{patientId}:
+    get:
+      summary: Получить список всех предстоящих записей к врачу по клиенту
+      description: |
+        Возвращает список всех предстоящих записей пациента к врачу.
+        По умолчанию возвращает полный список всех записей для переданного клиента.
+
+        Обязательные параметры:
+        - patientId (path) — идентификатор клиента
+        - X-Idempotency-Key (header) — ключ идемпотентности
+
+        Опциональные параметры (query):
+        - status — фильтр по статусу (new, confirmed). Если не передан — возвращаются все статусы.
+        - limit — размер страницы (default: 50, max: 200)
+        - offset — смещение (default: 10)
+
+        Коды ответов:
+        - 200 — запрос успешен, возвращён массив записей
+        - 404 — записи не найдены для данного клиента
+      operationId: getAppointmentsByPatient
+      tags:
+        - Appointments
+      security:
+        - BearerAuth: []
+      parameters:
+        - $ref: "#/components/parameters/patientId"
+        - $ref: "#/components/parameters/IdempotencyKey"
+        - $ref: "#/components/parameters/status"
+        - $ref: "#/components/parameters/limit"
+        - $ref: "#/components/parameters/offset"
+        - $ref: "#/components/parameters/X_Request_ID"
+      responses:
+        "200":
+          description: Успешный ответ со списком записей
+          headers:
+            X-Request-ID:
+              description: Trace-ID для distributed tracing
+              schema:
+                type: string
+                format: uuid
+              example: "req_abc123-def456"
+            X-RateLimit-Limit:
+              description: Лимит запросов в минуту
+              schema:
+                type: integer
+              example: 300
+            X-RateLimit-Remaining:
+              description: Оставшиеся запросы в текущем окне
+              schema:
+                type: integer
+              example: 299
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/AppointmentResponse"
+              example:
+                appointments:
+                  - patient_id: "patient_12345"
+                    status: "confirmed"
+                    limit: 50
+                    offset: 10
+                    idempotency_key: "idem_appt_patient_12345_20261115"
+                    id: "a1b2c3d4-e5f6-7890-abcd-ef1234567890"
+                    doctor:
+                      id: "doc_456"
+                      full_name: "Иванов Иван Иванович"
+                      specialization: "Терапевт"
+                      clinic:
+                        id: "clinic_msk_1"
+                        name: "Клиника на Тверской"
+                        address: "г. Москва, Тверская ул., д. 15"
+                    scheduled_at: "2026-11-20T14:30:00+03:00"
+                    type: "CONSULTATION"
+                    lab_tests: []
+                    notes: "Первичный приём"
+                    created_at: "2026-11-15T10:00:00+03:00"
+        "404":
+          description: Записи не найдены для данного клиента
+          headers:
+            X-Request-ID:
+              description: Trace-ID для distributed tracing
+              schema:
+                type: string
+                format: uuid
+              example: "req_abc123-def456"
+          content:
+            application/json:
+              schema:
+                $ref: "#/components/schemas/Error"
+              example:
+                error: "NOT_FOUND"
+                message: "Записи не найдены для указанного клиента"
+                trace_id: "trace_abc123"
+
+tags:
+  - name: Appointments
+    description: Операции с записями к врачу
+
+```
+
+---
+
+## 2. Обоснование архитектурных решений
+
+### 2.1. Версионирование API: URI Versioning (`/api/v1/`)
+
+**Выбранный подход:** Версионирование в пути URL (`/api/v1/appointments`).
+
+**Обоснование:**
+1. **Мобильные клиенты обновляются неравномерно.** На устройствах одновременно могут работать версии приложения, использующие API v1.0, v1.1 и v2.0. URI-версионирование позволяет параллельно обслуживать разные версии без риска поломки старых клиентов.
+2. **Прозрачность кеширования.** API Gateway (Kong/NGINX) и CDN легко кешируют и маршрутизируют запросы по префиксу `/api/v1/` к соответствующим upstream-кластерам.
+3. **Стандарт индустрии.** URI-версионирование стандартизировано и поддерживается всеми генераторами клиентских SDK (OpenAPI Generator, Swagger Codegen).
+4. **Простота миграции.** При обновлении до v2 клиенты меняют префикс URL — никаких заголовочных хитростей.
+
+### 2.2. Пагинация: Offset-Based (`limit` + `offset`)
+
+**Выбранный подход:** Пагинация смещением с параметрами `limit` (default: 20, max: 100) и `offset` (default: 0).
+
+**Обоснование:**
+1. **Предметная область.** Количество записей к врачу у одного пациента редко превышает несколько десятков (редко — сотни). Для таких объёмов `LIMIT/OFFSET` работает мгновенно (< 5 мс) по индексу `(patient_id, scheduled_at DESC)`.
+2. **UX мобильного интерфейса.** Позволяет реализовать «бесконечную прокрутку» (Infinite Scroll) и отображение общего количества записей (`total`) и номера страницы.
+3. **Прозрачные метаданные.** Ответ содержит структурированный блок `pagination` (`total`, `limit`, `offset`, `has_more`), избавляя клиента от вычисления флагов окончания списка.
+4. **Альтернатива (cursor-based) не требуется.** Cursor-пагинация лучше для больших наборов (миллионы строк) и при частых in-stream изменениях. В нашем случае записи к врачу — стабильный набор с низкой частотой изменений, поэтому offset-пагинация проще и понятнее.
+
+### 2.3. Защита от IDOR
+
+Параметр `patient_id` **не** передаётся клиентом. Идентификатор извлекается Gateway/Бэкендом исключительно из проверенной цифровой подписи JWT-токена (`sub` claim). Это полностью устраняет уязвимость просмотра чужих записей (SD-007).
+
+### 2.4. Distributed Tracing
+
+Заголовок `X-Request-ID` возвращается в каждом ответе и должен транслироваться через всю цепочку вызовов (через API Gateway → Schedule Service → CRM) для отслеживания в distributed tracing (OpenTelemetry).
